@@ -24,6 +24,8 @@
 #include <readline/history.h>
 #include "parse.h"
 
+#include<time.h>
+
 #define TRUE 1
 #define FALSE 0
 
@@ -55,6 +57,7 @@ int main(void)
       add_history(line);
       parse_result = parse(line, &cmd);
       RunCommand(parse_result, &cmd);
+
     }
 
     /* Clear memory */
@@ -72,9 +75,64 @@ int main(void)
  * 1. Implement this function so that it executes the given command(s).
  * 2. Remove the debug printing before the final submission.
  */
+
+
+
+void DateCommand(){
+  time_t tm;
+  time(&tm);
+  printf("%s", ctime(&tm));
+}
+//TODO Show login time, not sure how
+void WhoCommand(){
+  printf("%s\n", getenv("USERNAME"));
+  
+}
+void ExitCommand(){
+  exit(0);
+}
+void lsCommand(){
+  
+}
+void cdCommand(){
+  
+}
+void pwdCommand(){
+  char cwd[1024];
+  getcwd(cwd, sizeof(cwd));
+  printf("%s\n", cwd);
+
+}
+
+
+
 void RunCommand(int parse_result, Command *cmd)
 {
   DebugPrintCommand(parse_result, cmd);
+
+  //Creates a char array with the input text
+  char *cmd_text = *cmd->pgm->pgmlist;
+  
+  if(strcmp(cmd_text, "who") == 0){
+    WhoCommand();
+  }
+  else if(strcmp(cmd_text, "date") == 0){
+    DateCommand();
+  }
+  else if(strcmp(cmd_text, "exit") == 0){
+    ExitCommand();
+  }
+  else if(strcmp(cmd_text, "ls") == 0){
+    lsCommand();
+  }
+  else if(strcmp(cmd_text, "cd") == 0){
+    cdCommand();
+  }
+  else if(strcmp(cmd_text, "pwd") == 0){
+    pwdCommand();
+  }
+
+
 }
 
 
