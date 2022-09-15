@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 #define TRUE 1
 #define FALSE 0
@@ -37,10 +38,22 @@ void runCommand(int, Pgm *, int);
 void PrintPgm(Pgm *);
 void stripwhite(char *);
 
+
+//This is enough to kill all processes
+void handle_signal(int sig){
+  printf("\n"); 
+}
+
+
 int main(void)
 {
   Command cmd;
   int parse_result;
+
+  struct sigaction sa;
+  sa.sa_handler = &handle_signal;
+  sigaction(SIGINT, &sa, NULL);
+
 
   while (TRUE)
   {
@@ -67,6 +80,7 @@ int main(void)
   }
   return 0;
 }
+
 
 
 /* Execute the given command(s).
@@ -100,8 +114,25 @@ void RunCommand(int parse_result, Command *cmd)
     if (fdout == -1) {printf("Error when creatingm file");}
   }
 
+  
   runCommand(fdin, cmd->pgm, fdout);
   return;
+}
+
+
+//run in backround: create fork and don't wait
+//signal dont listen to CTRL-C
+//not working...
+void BackgroundCommand(int fdin, Command *cmd, int fdout){
+  pid_t processidOfChild;
+  processidOfChild = fork();
+  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
+  else if (processidOfChild == 0) {
+    signal(SIGINT, SIG_IGN);
+    
+    runCommand(fdin, cmd->pgm, fdout);
+  }
+
 }
 
 void runCommand(int from, Pgm *p, int to) {
@@ -144,11 +175,13 @@ void runCommand(int from, Pgm *p, int to) {
     int err = execvp(p->pgmlist[0], p->pgmlist);
     exit(0);
 
-  } else { 
-    close(pipefd[0]);
+  } else {              //Does it need to be an else here?
+    close(pipefd[0]);   //Should we close the pipes after wait? To make sure everything gets received
     close(pipefd[1]);
+    
     wait(NULL); 
   }
+
   return;
 }
 
