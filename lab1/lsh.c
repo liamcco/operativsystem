@@ -27,6 +27,8 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <errno.h>
 
 #define TRUE 1
 #define FALSE 0
@@ -36,11 +38,25 @@ void DebugPrintCommand(int, Command *);
 void runCommand(int, Pgm *, int);
 void PrintPgm(Pgm *);
 void stripwhite(char *);
+int BuiltinCommands(Pgm *);
+void BackgroundCommand(int, Command *, int);
+
+
+//This is enough to kill all processes
+void handle_signal(int sig){
+  printf("\n"); 
+}
+
 
 int main(void)
 {
   Command cmd;
   int parse_result;
+
+  struct sigaction sa;
+  sa.sa_handler = &handle_signal;
+  sigaction(SIGINT, &sa, NULL);
+
 
   while (TRUE)
   {
@@ -67,6 +83,7 @@ int main(void)
   }
   return 0;
 }
+
 
 
 /* Execute the given command(s).
@@ -99,10 +116,49 @@ void RunCommand(int parse_result, Command *cmd)
     fdout = open(output, O_CREAT|O_WRONLY|O_TRUNC);
     if (fdout == -1) {printf("Error when creatingm file");}
   }
+  //TODO Should you be able to pipe builtin commands?
+  int bc = BuiltinCommands(cmd->pgm);
+  //If it was a built in command "runCommnd" does not run. 
+  if(bc == 0){
+    runCommand(fdin, cmd->pgm, fdout);
+  }
 
-  runCommand(fdin, cmd->pgm, fdout);
+  
   return;
 }
+
+
+//run in backround: create fork and don't wait
+//signal dont listen to CTRL-C
+//not working...
+void BackgroundCommand(int fdin, Command *cmd, int fdout){
+  pid_t processidOfChild;
+  processidOfChild = fork();
+
+  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
+  else if (processidOfChild == 0) {
+    
+    signal(SIGINT, SIG_IGN);
+  
+    runCommand(fdin, cmd->pgm, fdout);
+  }
+
+}
+
+//Handles the bultin commands: "exit" and "cd"
+int BuiltinCommands(Pgm *p){
+  if(strcmp(*p->pgmlist, "exit") == 0){
+    exit(0);
+  }
+  else if(strcmp(*p->pgmlist, "cd") == 0){
+    if(chdir(p->pgmlist[1]) == -1){
+        printf("%s: %s\n", p->pgmlist[1], strerror(errno));  
+    };
+    return 1;
+  }
+  return 0;
+}
+
 
 void runCommand(int from, Pgm *p, int to) {
   if (p == NULL) {
@@ -142,13 +198,16 @@ void runCommand(int from, Pgm *p, int to) {
     close(pipefd[0]);
 
     int err = execvp(p->pgmlist[0], p->pgmlist);
+    
     exit(0);
 
-  } else { 
-    close(pipefd[0]);
+  } else {              //Does it need to be an else here?
+    close(pipefd[0]);   //Should we close the pipes after wait? To make sure everything gets received
     close(pipefd[1]);
+    
     wait(NULL); 
   }
+
   return;
 }
 
