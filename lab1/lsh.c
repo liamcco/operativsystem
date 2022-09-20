@@ -36,7 +36,7 @@
 
 void RunCommand(int, Command *);
 void DebugPrintCommand(int, Command *);
-void runCommand(int, Pgm *, int, int);
+void runCommand(int, Pgm *, int);
 void PrintPgm(Pgm *);
 void stripwhite(char *);
 int BuiltinCommands(Pgm *);
@@ -126,9 +126,79 @@ void RunCommand(int parse_result, Command *cmd)
     if (fdout == -1) {printf("Error when creating file");}
   }
 
-  // Runs command!
-  runCommand(fdin, cmd->pgm, fdout, cmd->background);
+  // Create child that can execute command
+  pid_t processidOfChild;
+  processidOfChild = fork();
+
+  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
+  else if (processidOfChild == 0) {
+
+    if (!cmd->background) {
+      signal(SIGINT, SIG_DFL);
+    }
+
+    // Runs command!
+    runCommand(fdin, cmd->pgm, fdout);
+
+  } else {
+    if (!cmd->background) {
+      wait(NULL);
+    }
+  }
   return;
+}
+
+void runCommand(int from, Pgm *p, int to) {
+  if (to != STDOUT_FILENO) {
+    dup2(to, STDOUT_FILENO);
+    close(to);
+  }
+
+  if (p->next) {
+
+    int pipefd[2];
+    int pipe_result = pipe(pipefd);
+
+    if (pipe_result < 0) {
+      printf("Could not create pipe\n");
+      return;
+    }
+
+    pid_t processidOfChild;
+    processidOfChild = fork();
+      
+    if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
+    else if (processidOfChild == 0) {
+      runCommand(from, p->next, pipefd[1]);
+      close(pipefd[1]);
+      close(pipefd[0]);
+
+    } else {
+      dup2(pipefd[0], STDIN_FILENO);
+      close(pipefd[1]);
+      close(pipefd[0]);
+
+      wait(NULL);
+
+      int err = execvp(p->pgmlist[0], p->pgmlist);
+
+      dup2(saved_output, 1);
+      printf("Something went wrong when running: %s\n", p->pgmlist[0]);
+      close(saved_output);
+      exit(1);
+    }
+  }
+
+  if (from != STDIN_FILENO) {
+    dup2(from, STDIN_FILENO);
+    close(from);
+  }
+
+  int err = execvp(p->pgmlist[0], p->pgmlist);
+
+  dup2(saved_output, 1);
+  printf("Something went wrong when running: %s\n", p->pgmlist[0]);
+  close(saved_output);
 }
 
 // Handles the bultin commands: "exit" and "cd"
@@ -145,84 +215,6 @@ int BuiltinCommands(Pgm *p){
     return 1;
   }
   return 0;
-}
-
-// Recursively runs command in p by calling runCommand with p = p->next
-// until p->next == NULL, then return.
-void runCommand(int from, Pgm *p, int to, int bg) {
-  if (p == NULL) {
-    // Makes sure that correct input is used
-    if (from != STDIN_FILENO) {
-      printf("Chaning std input!!!\n");
-      printf("input fd is%d\n", from);
-      dup2(from, STDIN_FILENO);
-      close(from);
-    }
-    return; 
-  }
-
-  // Create pipes to communicate with next child
-  int pipefd[2];
-  int pipe_result = pipe(pipefd);
-
-  if (pipe_result < 0) {
-    printf("Could not create pipe\n");
-    return;
-  }
-  
-  // Create child that can execute command
-  pid_t processidOfChild;
-  processidOfChild = fork();
-
-  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
-  else if (processidOfChild == 0) {
-    
-    // We want children to respond to Ctrl+C
-    if (!bg) {
-      signal(SIGINT, SIG_DFL);
-    }
-
-    // Changes standard output to the given pipe/file
-    if (to != STDOUT_FILENO) {
-      dup2(to, STDOUT_FILENO);
-      close(to);
-    }
-
-    // Runs next command in chain (from which input comes)
-    // Note: bg = 0, to make sure coming runCommands waits for children
-    runCommand(from, p->next, pipefd[1], 0);
-
-    // change std input to the output of command run above
-    if (p->next != NULL) {
-      dup2(pipefd[0], STDIN_FILENO);
-    }
-    
-    // Always close all pipes
-    close(pipefd[1]);
-    close(pipefd[0]);
-
-    // Execute command, only returns on error
-    int err = execvp(p->pgmlist[0], p->pgmlist);
-
-    // If error, reset std output and print error
-    dup2(saved_output, 1);
-
-    printf("Something went wrong when running: %s\n", p->pgmlist[0]);
-    close(saved_output);
-    
-    exit(1);
-
-  } else {          
-    // Both Parent and child has to close pipes!
-    close(pipefd[0]);
-    close(pipefd[1]);
-    
-    if (!bg) {
-      // Wait for created child, skip this if bg == 1
-      wait(NULL);
-    }
-  }
-  return;
 }
 
 /* 
