@@ -42,14 +42,10 @@ void stripwhite(char *);
 int BuiltinCommands(Pgm *);
 void handle_sigchld(int);
 
-// Saves fd of standard output so it can be restored
-// if an error occurs
 int saved_output = 1;
 
 void handle_sigchld(int sig) {
-  int saved_errno = errno;
   wait(NULL);
-  errno = saved_errno;
 }
 
 int main(void)
@@ -57,7 +53,6 @@ int main(void)
   Command cmd;
   int parse_result;
 
-  // Ignores Ctrl+C
   signal(SIGINT, SIG_IGN);
 
   struct sigaction sa;
@@ -92,27 +87,15 @@ int main(void)
   return 0;
 }
 
-
-
-/* Execute the given command(s).
-
- * Note: The function currently only prints the command(s).
- */
-
 void RunCommand(int parse_result, Command *cmd)
 {
-  //TODO Should you be able to pipe builtin commands?
-
-  // Checks for built-in commands
-  if (BuiltinCommands(cmd->pgm) == 1) { //Returns 1 if built-in command was found
+  if (BuiltinCommands(cmd->pgm) == 1) {
     return;
   }
 
-  // Opens and creates files if user types "<>"
   char* input = cmd->rstdin;
   char* output = cmd->rstdout;
 
-  // Sets file descriptors for stdio
   int fdin = STDIN_FILENO;
   int fdout = STDOUT_FILENO;
 
@@ -126,25 +109,18 @@ void RunCommand(int parse_result, Command *cmd)
     if (fdout == -1) {printf("Error when creating file");}
   }
 
-  // Create child that can execute command
   pid_t processidOfChild;
   processidOfChild = fork();
 
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
-
-    if (!cmd->background) {
-      signal(SIGINT, SIG_DFL);
-    }
-
-    // Runs command!
+    if (!cmd->background) { signal(SIGINT, SIG_DFL); }
     runCommand(fdin, cmd->pgm, fdout);
-
+    exit(0);
   } else {
-    if (!cmd->background) {
-      wait(NULL);
-    }
+    if (!cmd->background) { wait(NULL); }
   }
+  
   return;
 }
 
@@ -169,13 +145,12 @@ void runCommand(int from, Pgm *p, int to) {
       
     if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
     else if (processidOfChild == 0) {
-      runCommand(from, p->next, pipefd[1]);
-      close(pipefd[1]);
       close(pipefd[0]);
+      runCommand(from, p->next, pipefd[1]);
 
     } else {
-      dup2(pipefd[0], STDIN_FILENO);
       close(pipefd[1]);
+      dup2(pipefd[0], STDIN_FILENO);
       close(pipefd[0]);
 
       wait(NULL);
