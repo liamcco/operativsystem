@@ -29,34 +29,40 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <errno.h>
+#include <limits.h>
 
 #define TRUE 1
 #define FALSE 0
 
 void RunCommand(int, Command *);
 void DebugPrintCommand(int, Command *);
-void runCommand(int, Pgm *, int);
+void runCommand(int, Pgm *, int, int);
 void PrintPgm(Pgm *);
 void stripwhite(char *);
 int BuiltinCommands(Pgm *);
-void BackgroundCommand(int, Command *, int);
+void handle_sigchld(int);
 
+// Saves fd of standard output so it can be restored
+// if an error occurs
+int saved_output = 1;
 
-//This is enough to kill all processes
-void handle_signal(int sig){
-  printf("\n"); 
+void handle_sigchld(int sig) {
+  int saved_errno = errno;
+  wait(NULL);
+  errno = saved_errno;
 }
-
 
 int main(void)
 {
   Command cmd;
   int parse_result;
 
-  struct sigaction sa;
-  sa.sa_handler = &handle_signal;
-  sigaction(SIGINT, &sa, NULL);
+  // Ignores Ctrl+C
+  signal(SIGINT, SIG_IGN);
 
+  struct sigaction sa;
+  sa.sa_handler = &handle_sigchld;
+  sigaction(SIGCHLD, &sa, NULL);
 
   while (TRUE)
   {
@@ -68,8 +74,10 @@ int main(void)
     {
       break;
     }
+
     /* Remove leading and trailing whitespace from the line */
     stripwhite(line);
+
     /* If stripped line not blank */
     if (*line)
     {
@@ -89,63 +97,43 @@ int main(void)
 /* Execute the given command(s).
 
  * Note: The function currently only prints the command(s).
- * 
- * TODO: 
- * 1. Implement this function so that it executes the given command(s).
- * 2. Remove the debug printing before the final submission.
  */
+
 void RunCommand(int parse_result, Command *cmd)
 {
-  // DebugPrintCommand(parse_result, cmd);
-  
-  // check for built-in commands
-  // check for background? 
+  //TODO Should you be able to pipe builtin commands?
 
+  // Checks for built-in commands
+  if (BuiltinCommands(cmd->pgm) == 1) { //Returns 1 if built-in command was found
+    return;
+  }
+
+  // Opens and creates files if user types "<>"
   char* input = cmd->rstdin;
   char* output = cmd->rstdout;
 
+  // Sets file descriptors for stdio
   int fdin = STDIN_FILENO;
   int fdout = STDOUT_FILENO;
 
-  if(input != 0) {
+  if(input != NULL) {
     fdin = open(input, O_RDONLY);
     if (fdin == -1) {printf("Error when opening file");}
   }
 
-  if (output != 0) {
-    fdout = open(output, O_CREAT|O_WRONLY|O_TRUNC);
-    if (fdout == -1) {printf("Error when creatingm file");}
-  }
-  //TODO Should you be able to pipe builtin commands?
-  int bc = BuiltinCommands(cmd->pgm);
-  //If it was a built in command "runCommnd" does not run. 
-  if(bc == 0){
-    runCommand(fdin, cmd->pgm, fdout);
+  if (output != NULL) {
+    fdout = open(output, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+    if (fdout == -1) {printf("Error when creating file");}
   }
 
-  
+  // Runs command!
+  runCommand(fdin, cmd->pgm, fdout, cmd->background);
   return;
 }
 
-
-//run in backround: create fork and don't wait
-//signal dont listen to CTRL-C
-//not working...
-void BackgroundCommand(int fdin, Command *cmd, int fdout){
-  pid_t processidOfChild;
-  processidOfChild = fork();
-
-  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
-  else if (processidOfChild == 0) {
-    
-    signal(SIGINT, SIG_IGN);
-  
-    runCommand(fdin, cmd->pgm, fdout);
-  }
-
-}
-
-//Handles the bultin commands: "exit" and "cd"
+// Handles the bultin commands: "exit" and "cd"
+// This checks if 1st word is exit/cd
+// We should check nr of arguments
 int BuiltinCommands(Pgm *p){
   if(strcmp(*p->pgmlist, "exit") == 0){
     exit(0);
@@ -153,23 +141,27 @@ int BuiltinCommands(Pgm *p){
   else if(strcmp(*p->pgmlist, "cd") == 0){
     if(chdir(p->pgmlist[1]) == -1){
         printf("%s: %s\n", p->pgmlist[1], strerror(errno));  
-    };
+    }
     return 1;
   }
   return 0;
 }
 
-
-void runCommand(int from, Pgm *p, int to) {
+// Recursively runs command in p by calling runCommand with p = p->next
+// until p->next == NULL, then return.
+void runCommand(int from, Pgm *p, int to, int bg) {
   if (p == NULL) {
+    // Makes sure that correct input is used
     if (from != STDIN_FILENO) {
-      // change std input;
+      printf("Chaning std input!!!\n");
+      printf("input fd is%d\n", from);
       dup2(from, STDIN_FILENO);
       close(from);
     }
     return; 
   }
 
+  // Create pipes to communicate with next child
   int pipefd[2];
   int pipe_result = pipe(pipefd);
 
@@ -178,36 +170,58 @@ void runCommand(int from, Pgm *p, int to) {
     return;
   }
   
+  // Create child that can execute command
   pid_t processidOfChild;
   processidOfChild = fork();
 
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
+    
+    // We want children to respond to Ctrl+C
+    if (!bg) {
+      signal(SIGINT, SIG_DFL);
+    }
 
+    // Changes standard output to the given pipe/file
     if (to != STDOUT_FILENO) {
-      // change std outout
       dup2(to, STDOUT_FILENO);
       close(to);
     }
 
-    runCommand(from, p->next, pipefd[1]);
+    // Runs next command in chain (from which input comes)
+    // Note: bg = 0, to make sure coming runCommands waits for children
+    runCommand(from, p->next, pipefd[1], 0);
 
-    // change std input;
-    dup2(pipefd[0], STDIN_FILENO);
+    // change std input to the output of command run above
+    if (p->next != NULL) {
+      dup2(pipefd[0], STDIN_FILENO);
+    }
+    
+    // Always close all pipes
     close(pipefd[1]);
     close(pipefd[0]);
 
+    // Execute command, only returns on error
     int err = execvp(p->pgmlist[0], p->pgmlist);
-    
-    exit(0);
 
-  } else {              //Does it need to be an else here?
-    close(pipefd[0]);   //Should we close the pipes after wait? To make sure everything gets received
+    // If error, reset std output and print error
+    dup2(saved_output, 1);
+
+    printf("Something went wrong when running: %s\n", p->pgmlist[0]);
+    close(saved_output);
+    
+    exit(1);
+
+  } else {          
+    // Both Parent and child has to close pipes!
+    close(pipefd[0]);
     close(pipefd[1]);
     
-    wait(NULL); 
+    if (!bg) {
+      // Wait for created child, skip this if bg == 1
+      wait(NULL);
+    }
   }
-
   return;
 }
 
