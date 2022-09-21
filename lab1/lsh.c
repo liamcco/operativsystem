@@ -43,13 +43,18 @@ int BuiltinCommands(Pgm *);
 void handle_sigchld(int);
 void handle_sigint(int);
 
-
-int saved_output = 1;
+// Saves fd of std output
+int saved_output = STDOUT_FILENO; // 1
+int status;
 
 void handle_sigchld(int sig) {
-  //WHOHANG returns immediately. THis is good since we only want to collect the status of the dead and move on.
+  //WHOHANG returns immediately. 
+  // THis is good since we only want to collect the status of the dead 
+  // and move on.
   waitpid(-1, NULL, WNOHANG);
 }
+
+// Handles Ctrl+C
 void handle_sigint(int sig) {
   printf("\n");
 }
@@ -59,23 +64,9 @@ int main(void)
   Command cmd;
   int parse_result;
 
-  //signal(SIGINT, SIG_IGN);
-
-/*
-  struct sigaction sa;
-  sa.sa_handler = &handle_sigchld;
-  sigaction(SIGCHLD, &sa, NULL);
-  
-  struct sigaction sab;
-  sab.sa_handler = &handle_sigchld;
-  sigaction(SIGINT, &sab, NULL);
-*/
-
-signal(SIGCHLD, &handle_sigchld);
-signal(SIGINT, &handle_sigint);
-
-
-
+  // Assigns custom signal handlers for the main thread.
+  signal(SIGCHLD, &handle_sigchld);
+  signal(SIGINT, &handle_sigint);
 
   while (TRUE)
   {
@@ -107,16 +98,21 @@ signal(SIGINT, &handle_sigint);
 
 void RunCommand(int parse_result, Command *cmd)
 {
-  if (BuiltinCommands(cmd->pgm) == 1) {
+
+  // Check if user typed a built-in command
+  // If so, return. 
+  if (BuiltinCommands(cmd->pgm) == 1) { // returns 1 if user typed built-in command
     return;
   }
 
   char* input = cmd->rstdin;
   char* output = cmd->rstdout;
 
+  // default fd is stdio
   int fdin = STDIN_FILENO;
   int fdout = STDOUT_FILENO;
 
+  // Open and/or create files is user wants to redirect I/O
   if(input != NULL) {
     fdin = open(input, O_RDONLY);
     if (fdin == -1) {printf("Error when opening file");}
@@ -127,48 +123,66 @@ void RunCommand(int parse_result, Command *cmd)
     if (fdout == -1) {printf("Error when creating file");}
   }
 
+  // Fork child to run command
   pid_t processidOfChild;
   processidOfChild = fork();
 
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
 
-    if (cmd->background) { signal(SIGINT, SIG_IGN); 
+    // Ignore Ctrl+C if the command is  set to run in the background
+    if (cmd->background) { 
+      signal(SIGINT, SIG_IGN); 
     }
+
+    // Run command with fd for in and out
     runCommand(fdin, cmd->pgm, fdout);
     exit(0);
-
   } 
+
   else {
-    if (!cmd->background) { wait(NULL); }
+    // if the command runs in the foreground, wait for it to finish
+    // Before displaying prompt and taking more input
+    if (!cmd->background) {
+      // Wait for the active child.
+      waitpid(processidOfChild, &status, 0);
+    }
   }
-  
   return;
 }
 
+// run command p with input from and output to
 void runCommand(int from, Pgm *p, int to) {
   
+  // redirect output to ''to'', always close pipes. 
   if (to != STDOUT_FILENO) {
     dup2(to, STDOUT_FILENO);
     close(to);
   }
 
+  // Base case, if there are no more commands to come
   if (!p->next) {
     
+    // Redirect standard input
     if (from != STDIN_FILENO) {
       dup2(from, STDIN_FILENO);
       close(from);
     }
 
-    int err = execvp(p->pgmlist[0], p->pgmlist); 
+    // Execute command
+    int err = execvp(p->pgmlist[0], p->pgmlist);
 
+    // This only runs if there was a problem with execvp
+    // Prints to terminal using saved_output.
     dup2(saved_output, 1);
     printf("Something went wrong when running: %s\n", p->pgmlist[0]);
     close(saved_output);
 
+    // Terminates child
     exit(1);
   }
 
+  // Case: there are more commands to follow ---> We need pipes!
   int pipefd[2];
   int pipe_result = pipe(pipefd);
 
@@ -177,26 +191,37 @@ void runCommand(int from, Pgm *p, int to) {
     return;
   }
 
+  // More commands to follow ---> We need to fork!
   pid_t processidOfChild;
   processidOfChild = fork();
       
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
 
-    //signal(SIGINT, SIG_DFL);
-
+    // Close read end of pipe.
     close(pipefd[0]);
+
+    // Recursive call, same fd from
+    // but writes to pipefd[0] to send output to parent
+    // pipefd[1] is closed in the first lines of the function call
     runCommand(from, p->next, pipefd[1]);
     exit(0);
 
   } else {
+    // Close write end of pipe
     close(pipefd[1]);
+
+    // Redirect input to read end of pipe
     dup2(pipefd[0], STDIN_FILENO);
     close(pipefd[0]);
 
+    // Wait for any (only) child
     wait(NULL);
 
+    // Execute command using newly redirected pipe as input
     int err = execvp(p->pgmlist[0], p->pgmlist);
+
+    // Only prints if execvp fails
     dup2(saved_output, 1);
     printf("Something went wrong when running: %s\n", p->pgmlist[0]);
     close(saved_output);
@@ -205,13 +230,12 @@ void runCommand(int from, Pgm *p, int to) {
 }
 
 // Handles the bultin commands: "exit" and "cd"
-// This checks if 1st word is exit/cd
-// We should check nr of arguments
 int BuiltinCommands(Pgm *p){
   if(strcmp(*p->pgmlist, "exit") == 0){
     exit(0);
   }
   else if(strcmp(*p->pgmlist, "cd") == 0) {
+    // Special case: User wants home directory
     if(chdir(p->pgmlist[1] ? p->pgmlist[1] : getenv("HOME")) == -1){
         printf("%s: %s\n", p->pgmlist[1], strerror(errno));  
     }
