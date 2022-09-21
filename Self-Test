@@ -1,0 +1,119 @@
+> date
+Wed 21 Sep 2022 06:09:17 PM CEST
+
+> hello
+Something went wrong when running: hello
+
+No children alive in "top"
+
+> ls -al -p
+total 93
+drwx------ 2 emilundq emilundq     9 Sep 21 18:08 ./
+drwx------ 3 emilundq emilundq     5 Sep 21 17:40 ../
+-rwxr-x--- 1 emilundq emilundq 29856 Sep 21 18:08 lsh
+-rw-r----- 1 emilundq emilundq  6000 Sep 21 17:40 lsh.c
+-rw-r----- 1 emilundq emilundq 13552 Sep 21 18:08 lsh.o
+-rw-r----- 1 emilundq emilundq   383 Sep 21 17:40 Makefile
+-rw-r----- 1 emilundq emilundq  3152 Sep 21 17:40 parse.c
+-rw-r----- 1 emilundq emilundq   343 Sep 21 17:40 parse.h
+-rw-r----- 1 emilundq emilundq 12224 Sep 21 18:08 parse.o
+
+> ls -al > tmp.1
+> cat < tmp.1 > tmp.2
+> diff tmp.1 tmp.2
+> 
+
+No output, as expected there is no difference
+
+
+> sleep 60 &
+> sleep 60 &
+> sleep 60 
+^C
+> 
+
+The foreground process stops, the background ones don't. But after 60 seconds they het removed, no zombie processes left. As expected.
+
+> ls -al | wc -w
+110
+> ls -al | wc
+     13     110     705
+> ls | grep lsh | sort -r
+lsh.o
+lsh.c
+lsh
+> 
+
+Yes, the prompts appear
+
+> ls | wc &
+>       9       9      61
+
+Immidiately but > a bit missaligned
+
+> cat < tmp.1 | wc > tmp.3
+> cat tmp.1 | wc
+     11      92     569
+> cat tmp.3
+     11      92     569
+> 
+
+Same
+
+
+> abf | wc
+      1       6      39
+> ls | abf
+Something went wrong when running: abf
+> grep apa | ls
+lsh  lsh.c  lsh.o  Makefile  parse.c  parse.h  parse.o  tmp.1  tmp.2  tmp.3
+> 
+
+grep terminates and prints after Ctrl-D but not before
+
+> cd ..
+> cd lab1 | abf
+Something went wrong when running: abf
+> ls
+lab1  README.md
+> 
+
+ls works!
+
+
+> cd
+> pwd
+/chalmers/users/emilundq
+
+works!
+
+> grep exit < tmp.1
+It sits here until Ctrl-D then prints:
+Error when opening file> 
+
+>   exit
+
+The shell quit!
+
+> grep exit | wc
+      0       0       0
+>
+prompt does not appear, only after Ctrl-D
+
+
+> grep cd | wc
+      0       0       0
+> 
+
+Only after pressing Ctrl-D
+
+
+>exit
+
+No zombies!
+
+
+
+
+
+
