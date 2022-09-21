@@ -114,9 +114,11 @@ void RunCommand(int parse_result, Command *cmd)
 
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
+
     if (!cmd->background) { signal(SIGINT, SIG_DFL); }
     runCommand(fdin, cmd->pgm, fdout);
     exit(0);
+
   } else {
     if (!cmd->background) { wait(NULL); }
   }
@@ -125,55 +127,61 @@ void RunCommand(int parse_result, Command *cmd)
 }
 
 void runCommand(int from, Pgm *p, int to) {
+  
   if (to != STDOUT_FILENO) {
     dup2(to, STDOUT_FILENO);
     close(to);
   }
 
-  if (p->next) {
-
-    int pipefd[2];
-    int pipe_result = pipe(pipefd);
-
-    if (pipe_result < 0) {
-      printf("Could not create pipe\n");
-      return;
+  if (!p->next) {
+    
+    if (from != STDIN_FILENO) {
+      dup2(from, STDIN_FILENO);
+      close(from);
     }
 
-    pid_t processidOfChild;
-    processidOfChild = fork();
+    int err = execvp(p->pgmlist[0], p->pgmlist); 
+
+    dup2(saved_output, 1);
+    printf("Something went wrong when running: %s\n", p->pgmlist[0]);
+    close(saved_output);
+    
+    exit(1);
+  }
+
+  int pipefd[2];
+  int pipe_result = pipe(pipefd);
+
+  if (pipe_result < 0) {
+    printf("Could not create pipe\n");
+    return;
+  }
+
+  pid_t processidOfChild;
+  processidOfChild = fork();
       
-    if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
-    else if (processidOfChild == 0) {
-      close(pipefd[0]);
-      runCommand(from, p->next, pipefd[1]);
+  if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
+  else if (processidOfChild == 0) {
 
-    } else {
-      close(pipefd[1]);
-      dup2(pipefd[0], STDIN_FILENO);
-      close(pipefd[0]);
+    signal(SIGINT, SIG_DFL);
 
-      wait(NULL);
+    close(pipefd[0]);
+    runCommand(from, p->next, pipefd[1]);
+    exit(0);
 
-      int err = execvp(p->pgmlist[0], p->pgmlist);
+  } else {
+    close(pipefd[1]);
+    dup2(pipefd[0], STDIN_FILENO);
+    close(pipefd[0]);
 
-      dup2(saved_output, 1);
-      printf("Something went wrong when running: %s\n", p->pgmlist[0]);
-      close(saved_output);
-      exit(1);
-    }
+    wait(NULL);
+
+    int err = execvp(p->pgmlist[0], p->pgmlist);
+    dup2(saved_output, 1);
+    printf("Something went wrong when running: %s\n", p->pgmlist[0]);
+    close(saved_output);
+    exit(1);
   }
-
-  if (from != STDIN_FILENO) {
-    dup2(from, STDIN_FILENO);
-    close(from);
-  }
-
-  int err = execvp(p->pgmlist[0], p->pgmlist);
-
-  dup2(saved_output, 1);
-  printf("Something went wrong when running: %s\n", p->pgmlist[0]);
-  close(saved_output);
 }
 
 // Handles the bultin commands: "exit" and "cd"
