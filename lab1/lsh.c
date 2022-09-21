@@ -41,11 +41,17 @@ void PrintPgm(Pgm *);
 void stripwhite(char *);
 int BuiltinCommands(Pgm *);
 void handle_sigchld(int);
+void handle_sigint(int);
+
 
 int saved_output = 1;
 
 void handle_sigchld(int sig) {
-  wait(NULL);
+  //WHOHANG returns immediately. THis is good since we only want to collect the status of the dead and move on.
+  waitpid(-1, NULL, WNOHANG);
+}
+void handle_sigint(int sig) {
+  printf("\n");
 }
 
 int main(void)
@@ -53,11 +59,23 @@ int main(void)
   Command cmd;
   int parse_result;
 
-  signal(SIGINT, SIG_IGN);
+  //signal(SIGINT, SIG_IGN);
 
+/*
   struct sigaction sa;
   sa.sa_handler = &handle_sigchld;
   sigaction(SIGCHLD, &sa, NULL);
+  
+  struct sigaction sab;
+  sab.sa_handler = &handle_sigchld;
+  sigaction(SIGINT, &sab, NULL);
+*/
+
+signal(SIGCHLD, &handle_sigchld);
+signal(SIGINT, &handle_sigint);
+
+
+
 
   while (TRUE)
   {
@@ -115,11 +133,13 @@ void RunCommand(int parse_result, Command *cmd)
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
 
-    if (!cmd->background) { signal(SIGINT, SIG_DFL); }
+    if (!cmd->background) { //signal(SIGINT, SIG_DFL); 
+    }
     runCommand(fdin, cmd->pgm, fdout);
     exit(0);
 
-  } else {
+  } 
+  else {
     if (!cmd->background) { wait(NULL); }
   }
   
@@ -163,7 +183,7 @@ void runCommand(int from, Pgm *p, int to) {
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
 
-    signal(SIGINT, SIG_DFL);
+    //signal(SIGINT, SIG_DFL);
 
     close(pipefd[0]);
     runCommand(from, p->next, pipefd[1]);
