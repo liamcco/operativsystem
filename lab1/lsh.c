@@ -145,7 +145,7 @@ void runCommand(int from, Pgm *p, int to) {
     dup2(saved_output, 1);
     printf("Something went wrong when running: %s\n", p->pgmlist[0]);
     close(saved_output);
-    
+
     exit(1);
   }
 
@@ -191,8 +191,8 @@ int BuiltinCommands(Pgm *p){
   if(strcmp(*p->pgmlist, "exit") == 0){
     exit(0);
   }
-  else if(strcmp(*p->pgmlist, "cd") == 0){
-    if(chdir(p->pgmlist[1]) == -1){
+  else if(strcmp(*p->pgmlist, "cd") == 0) {
+    if(chdir(p->pgmlist[1] ? p->pgmlist[1] : getenv("HOME")) == -1){
         printf("%s: %s\n", p->pgmlist[1], strerror(errno));  
     }
     return 1;
