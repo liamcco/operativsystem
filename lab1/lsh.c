@@ -133,7 +133,7 @@ void RunCommand(int parse_result, Command *cmd)
   if (processidOfChild == -1) { printf("Failed to fork child\n"); } 
   else if (processidOfChild == 0) {
 
-    if (!cmd->background) { //signal(SIGINT, SIG_DFL); 
+    if (cmd->background) { signal(SIGINT, SIG_IGN); 
     }
     runCommand(fdin, cmd->pgm, fdout);
     exit(0);
